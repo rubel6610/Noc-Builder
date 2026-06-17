@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, ScrollView } from 'react-native';
+import { router } from 'expo-router';
 import { Text, Title, Searchbar, FAB, useTheme, Surface } from 'react-native-paper';
 import { TEMPLATES } from '../../data/templates';
 import { TemplateCard } from '../../components/TemplateCard';
@@ -72,10 +73,10 @@ export default function TemplatesScreen() {
       {selectedTemplate && (
         <FAB
           icon="check-bold"
-          label={`Apply ${selectedTemplate.name}`}
+          label={`Use ${selectedTemplate.name}`}
           className="absolute m-6 right-0 bottom-0 rounded-2xl shadow-xl"
           style={{ backgroundColor: selectedTemplate.primaryColor }}
-          onPress={() => {}}
+          onPress={() => router.push('/(tabs)/create')}
           color="white"
         />
       )}

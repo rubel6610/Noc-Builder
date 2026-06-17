@@ -1,25 +1,94 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Dimensions, Modal, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { Text, Surface, Button, IconButton, useTheme, Portal, FAB } from 'react-native-paper';
+import { View, StyleSheet, Dimensions, Modal, ScrollView, Alert } from 'react-native';
+import { Text, Surface, Button, IconButton, useTheme, Portal } from 'react-native-paper';
+import Svg, { Circle, Defs, Path, Text as SvgText, TextPath, G } from 'react-native-svg';
 import { useNoc } from '../context/NocContext';
 import { useTemplates } from '../context/TemplateContext';
-import { useHistory } from '../context/HistoryContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { generateNocPdf } from '../utils/pdfGenerator';
-import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const A4_RATIO = 1.414;
 const PREVIEW_WIDTH = width - 40;
 const PREVIEW_HEIGHT = PREVIEW_WIDTH * A4_RATIO;
+const STAMP_COLOR = '#6D28D9';
+
+const parseSafeDate = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+    if (
+      parsed.getFullYear() === Number(year) &&
+      parsed.getMonth() === Number(month) - 1 &&
+      parsed.getDate() === Number(day)
+    ) {
+      return parsed;
+    }
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getReferenceDatePart = (issueDate: string) => {
+  const parsed = parseSafeDate(issueDate);
+  if (!parsed) {
+    return 'undated';
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const CompanyStamp = ({
+  englishName,
+  arabicName,
+}: {
+  englishName: string;
+  arabicName: string;
+}) => (
+  <Svg width={204} height={204} viewBox="0 0 200 200">
+    <Defs>
+      <Path id="topArc" d="M 28 100 A 72 72 0 0 1 172 100" />
+      <Path id="bottomArc" d="M 172 100 A 72 72 0 0 1 28 100" />
+    </Defs>
+    <G rotation="-8" origin="100, 100" opacity={0.96}>
+      <Circle cx="100" cy="100" r="84" stroke={STAMP_COLOR} strokeWidth="4" fill="none" />
+      <Circle cx="100" cy="100" r="60" stroke={STAMP_COLOR} strokeWidth="2.5" fill="none" />
+      <SvgText fill={STAMP_COLOR} fontSize="10" fontWeight="700">
+        <TextPath href="#topArc" startOffset="50%" textAnchor="middle">
+          {arabicName || 'اسم الشركة'}
+        </TextPath>
+      </SvgText>
+      <SvgText fill={STAMP_COLOR} fontSize="8.5" fontWeight="700" letterSpacing="0.8">
+        <TextPath href="#bottomArc" startOffset="50%" textAnchor="middle">
+          {englishName || 'COMPANY NAME'}
+        </TextPath>
+      </SvgText>
+      <SvgText x="51" y="108" textAnchor="middle" fill={STAMP_COLOR} fontSize="14" fontWeight="700">•</SvgText>
+      <SvgText x="149" y="108" textAnchor="middle" fill={STAMP_COLOR} fontSize="14" fontWeight="700">•</SvgText>
+    </G>
+    <SvgText x="100" y="108" textAnchor="middle" alignmentBaseline="middle" fill={STAMP_COLOR} fontSize="24" fontWeight="700">
+      UAE
+    </SvgText>
+  </Svg>
+);
 
 export const NocPreview = () => {
   const { nocData } = useNoc();
   const { selectedTemplate } = useTemplates();
-  const { addToHistory, getNextSerialNumber } = useHistory();
   const theme = useTheme();
-  
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,151 +104,99 @@ export const NocPreview = () => {
     );
   }
 
-  const serialNumber = getNextSerialNumber();
+  const serialNumber = `NOC-${getReferenceDatePart(nocData.issueDate || '')}-${nocData.emiratesId.slice(-4).replace(/\D/g, '') || '0000'}`;
+  const t = selectedTemplate;
 
   const handleDownload = async () => {
     setIsLoading(true);
     try {
-      const uri = await generateNocPdf(nocData, selectedTemplate, serialNumber);
-      if (uri) {
-        await addToHistory({
-          employeeName: nocData.employeeName,
-          emiratesId: nocData.emiratesId,
-          templateName: selectedTemplate.name,
-          pdfPath: uri,
-        });
-      }
+      await generateNocPdf(nocData, selectedTemplate, serialNumber);
     } finally {
       setIsLoading(false);
     }
   };
 
   const copyToClipboard = async () => {
-    const text = `NOC Details:\nSerial: ${serialNumber}\nEmployee: ${nocData.employeeName}\nEmirates ID: ${nocData.emiratesId}\nCompany: ${nocData.companyName}`;
+    const text = `NOC Details:\nReference: ${serialNumber}\nCompany: ${nocData.companyName}\nEmployee: ${nocData.employeeName}\nEmirates ID: ${nocData.emiratesId}\nJob: ${nocData.jobTitle}`;
     await Clipboard.setStringAsync(text);
     Alert.alert('Copied!', 'NOC summary copied to clipboard');
   };
 
-  const toggleZoom = () => {
-    setZoomScale(zoomScale === 1 ? 1.5 : 1);
-  };
-
-  const t = selectedTemplate;
-
-  const renderDocument = (scale: number = 1) => (
-    <Surface 
+  const renderDocument = (scale = 1) => (
+    <Surface
       style={[
-        styles.a4Page, 
-        { 
-          borderColor: t.primaryColor,
-          borderTopWidth: t.id === '4' || t.id === '5' ? 8 : 0,
-          transform: [{ scale }]
+        styles.a4Page,
+        {
+          transform: [{ scale }],
         }
-      ]} 
+      ]}
       elevation={4}
     >
-      {/* Template Header Design */}
-      <View style={{ backgroundColor: t.id === '1' || t.id === '3' ? t.primaryColor : 'transparent' }} className="p-6 flex-row justify-between items-center">
-        <View>
-           {t.id === '5' && <MaterialCommunityIcons name="seal" size={40} color={t.primaryColor} />}
-           <Text 
-             style={{ 
-               color: (t.id === '1' || t.id === '3') ? 'white' : t.primaryColor,
-               fontFamily: t.id === '4' ? 'serif' : 'sans-serif',
-               fontSize: 24,
-               fontWeight: '900'
-             }}
-           >
-             NOC
-           </Text>
-           <Text style={{ color: (t.id === '1' || t.id === '3') ? t.accentColor : '#64748B', fontSize: 10 }}>
-             Ref: {serialNumber}
-           </Text>
-        </View>
-        <View className="items-end">
-          <Text style={{ color: (t.id === '1' || t.id === '3') ? 'white' : '#1E293B', fontWeight: 'bold' }}>
-            {nocData.companyName || 'Company Name'}
-          </Text>
-          <Text style={{ color: (t.id === '1' || t.id === '3') ? t.accentColor : '#64748B', fontSize: 10 }}>
-            Date: {nocData.issueDate}
-          </Text>
-        </View>
-      </View>
+      <View style={[styles.topStrip, { backgroundColor: t.primaryColor }]} />
 
-      {t.id === '1' && <View style={{ backgroundColor: t.secondaryColor, height: 4 }} />}
-      
-      <View className="p-8 flex-1">
-        <Text 
-          style={{ 
-            color: t.primaryColor, 
-            textAlign: 'center', 
-            fontSize: 18, 
-            fontWeight: 'bold',
-            textDecorationLine: t.id === '2' ? 'none' : 'underline',
-            marginBottom: 30
-          }}
-        >
-          TO WHOMSOEVER IT MAY CONCERN
+      <View style={[styles.banner, { backgroundColor: t.secondaryColor, borderColor: t.primaryColor }]}>
+        <Text style={[styles.bannerText, { color: t.id === '2' ? '#111827' : '#FFFFFF' }]}>
+          {nocData.companyName || 'Company Name'}
         </Text>
+      </View>
 
-        <View className="mb-6">
-          <Text style={styles.bodyText}>
-            This is to certify that <Text style={styles.boldText}>{nocData.employeeName || '[Employee Name]'}</Text>, 
-            son of <Text style={styles.boldText}>{nocData.fatherName || '[Father Name]'}</Text>, 
-            holding Passport No: <Text style={styles.boldText}>{nocData.passportNumber || '[Passport #]'}</Text> 
-            and Emirates ID: <Text style={styles.boldText}>{nocData.emiratesId || '[Emirates ID]'}</Text>, 
-            is currently employed with <Text style={styles.boldText}>{nocData.companyName || '[Company Name]'}</Text> 
-            as <Text style={styles.boldText}>{nocData.jobTitle || '[Job Title]'}</Text>.
-          </Text>
+      <View style={styles.metaRow}>
+        <Text style={styles.metaText}>Date: {nocData.issueDate}</Text>
+      </View>
+
+      <Text style={styles.subject}>Sub: No Objection Certificate</Text>
+
+      <Text style={styles.paragraph}>
+        We confirm that <Text style={styles.strong}>{nocData.employeeName || '[Employee Name]'}</Text>, Emirates ID No{' '}
+        <Text style={styles.strong}>{nocData.emiratesId || '[Emirates ID]'}</Text> has been an employee of{' '}
+        <Text style={styles.strong}>{nocData.companyName || '[Company Name]'}</Text> as a{' '}
+        <Text style={styles.strong}>{nocData.jobTitle || '[Job Title]'}</Text> and we have no objection for{' '}
+        {nocData.employeeName?.split(' ')[0] || 'the employee'} to work with <Text style={styles.strong}>any other company</Text>.
+      </Text>
+
+      <Text style={styles.paragraph}>
+        This no objection certificate is issued on particular request of the employee and may be useful for him in
+        future or as per requirement of any other organization.
+      </Text>
+
+      <Text style={styles.paragraphTight}>
+        If any further queries are to be discussed you can feel free to contact.
+      </Text>
+
+      <View style={styles.table}>
+        <View style={styles.tableRow}>
+          <Text style={[styles.th, styles.colSr, { backgroundColor: t.accentColor }]}>Sr</Text>
+          <Text style={[styles.th, styles.colName, { backgroundColor: t.accentColor }]}>Name</Text>
+          <Text style={[styles.th, styles.colEid, { backgroundColor: t.accentColor }]}>Emirates ID No</Text>
+          <Text style={[styles.th, styles.colJob, { backgroundColor: t.accentColor }]}>Job</Text>
+          <Text style={[styles.th, styles.colNationality, { backgroundColor: t.accentColor }]}>Nationality</Text>
+          <Text style={[styles.th, styles.colCompany, { backgroundColor: t.accentColor }]}>Company</Text>
         </View>
 
-        <View className="mb-6">
-          <Text style={styles.bodyText}>
-            We confirm that we have no objection to the employee's request and we provide our 
-            full consent regarding the matter mentioned in the application.
-          </Text>
-        </View>
-
-        {nocData.remarks ? (
-          <View className="mb-6 p-3 bg-slate-50 border-l-2 border-slate-200">
-            <Text className="text-[10px] text-slate-400 font-bold mb-1">REMARKS:</Text>
-            <Text style={styles.bodyText} className="italic">{nocData.remarks}</Text>
-          </View>
-        ) : null}
-
-        <View className="mt-auto pt-10 flex-row justify-between">
-          <View className="w-1/2">
-             <View style={{ borderBottomWidth: 1, borderBottomColor: '#E2E8F0', marginBottom: 5 }} />
-             <Text className="text-[10px] font-bold text-slate-800 uppercase">{nocData.managerName || 'Manager Name'}</Text>
-             <Text className="text-[9px] text-slate-500">Authorized Signatory</Text>
-             <Text className="text-[9px] text-slate-500">{nocData.companyName}</Text>
-          </View>
-          
-          <View className="items-end">
-             <QRCode
-               value={`${serialNumber}|${nocData.employeeName}|${nocData.emiratesId}`}
-               size={60}
-               color={t.primaryColor}
-               backgroundColor="white"
-             />
-          </View>
+        <View style={styles.tableRow}>
+          <Text style={[styles.td, styles.colSr]}>01</Text>
+          <Text style={[styles.td, styles.colName]}>{nocData.employeeName}</Text>
+          <Text style={[styles.td, styles.colEid]}>{nocData.emiratesId}</Text>
+          <Text style={[styles.td, styles.colJob]}>{nocData.jobTitle}</Text>
+          <Text style={[styles.td, styles.colNationality]}>{nocData.nationality}</Text>
+          <Text style={[styles.td, styles.colCompany]}>{nocData.companyName}</Text>
         </View>
       </View>
 
-      {/* Footer Design */}
-      <View 
-        style={{ backgroundColor: t.id === '2' ? 'transparent' : t.accentColor }} 
-        className="p-4 flex-row justify-around border-t border-slate-100"
-      >
-        <View className="flex-row items-center">
-          <MaterialCommunityIcons name="phone" size={10} color={t.primaryColor} />
-          <Text className="text-[8px] ml-1 text-slate-600">{nocData.phoneNumber || 'Contact No.'}</Text>
-        </View>
-        <View className="flex-row items-center">
-          <MaterialCommunityIcons name="map-marker" size={10} color={t.primaryColor} />
-          <Text className="text-[8px] ml-1 text-slate-600">{nocData.address || 'Address'}</Text>
-        </View>
+      <View style={styles.signatureBlock}>
+        <Text style={styles.signatureText}>Yours truly</Text>
+        <Text style={styles.signatureText}>{nocData.managerName || 'Manager'}</Text>
+
+        <Text style={styles.companySignature}>{nocData.companyName}</Text>
+        <CompanyStamp
+          englishName={nocData.companyName}
+          arabicName={nocData.companyNameArabic}
+        />
       </View>
+
+      {nocData.remarks ? (
+        <Text style={styles.remarks}>Remarks: {nocData.remarks}</Text>
+      ) : null}
     </Surface>
   );
 
@@ -193,55 +210,39 @@ export const NocPreview = () => {
           <Text className="text-[8px] text-slate-400">Ref: {serialNumber}</Text>
         </View>
         <View className="flex-row gap-2">
-          <IconButton
-            icon="content-copy"
-            size={20}
-            onPress={copyToClipboard}
+          <IconButton icon="content-copy" size={20} onPress={copyToClipboard} mode="contained" containerColor="white" />
+          <IconButton icon="fullscreen" size={20} onPress={() => setIsFullscreen(true)} mode="contained" containerColor="white" />
+          <Button
             mode="contained"
-            containerColor="white"
-          />
-          <IconButton
-            icon="fullscreen"
-            size={20}
-            onPress={() => setIsFullscreen(true)}
-            mode="contained"
-            containerColor="white"
-          />
-          <Button 
-            mode="contained" 
-            icon="file-pdf-box" 
+            icon="file-pdf-box"
             onPress={handleDownload}
             loading={isLoading}
             buttonColor={t.primaryColor}
             labelStyle={{ fontSize: 10 }}
             className="rounded-lg"
           >
-            Share PDF
+            Download PDF
           </Button>
         </View>
       </View>
-      
+
       <View className="overflow-hidden items-center">
         {renderDocument()}
       </View>
 
       <Portal>
-        <Modal 
-          visible={isFullscreen} 
-          onDismiss={() => setIsFullscreen(false)}
-          contentContainerStyle={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)' }}
-        >
-          <View className="flex-1">
+        <Modal visible={isFullscreen} onDismiss={() => setIsFullscreen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)' }}>
             <View className="flex-row justify-between p-4 items-center">
-               <Text className="text-white font-bold">Document Preview</Text>
-               <View className="flex-row">
-                 <IconButton icon="minus" iconColor="white" onPress={() => setZoomScale(Math.max(0.5, zoomScale - 0.1))} />
-                 <IconButton icon="plus" iconColor="white" onPress={() => setZoomScale(Math.min(2, zoomScale + 0.1))} />
-                 <IconButton icon="close" iconColor="white" onPress={() => setIsFullscreen(false)} />
-               </View>
+              <Text className="text-white font-bold">Document Preview</Text>
+              <View className="flex-row">
+                <IconButton icon="minus" iconColor="white" onPress={() => setZoomScale(Math.max(0.5, zoomScale - 0.1))} />
+                <IconButton icon="plus" iconColor="white" onPress={() => setZoomScale(Math.min(2, zoomScale + 0.1))} />
+                <IconButton icon="close" iconColor="white" onPress={() => setIsFullscreen(false)} />
+              </View>
             </View>
-            <ScrollView 
-              className="flex-1" 
+            <ScrollView
+              className="flex-1"
               contentContainerStyle={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 50 }}
               maximumZoomScale={2}
               minimumZoomScale={0.5}
@@ -250,7 +251,7 @@ export const NocPreview = () => {
             </ScrollView>
             <View className="p-6">
               <Button mode="contained" onPress={handleDownload} buttonColor={t.primaryColor}>
-                Generate & Share NOC
+                Generate NOC PDF
               </Button>
             </View>
           </View>
@@ -260,6 +261,15 @@ export const NocPreview = () => {
   );
 };
 
+const cellBase = {
+  borderWidth: 1,
+  borderColor: '#262626',
+  paddingHorizontal: 6,
+  paddingVertical: 10,
+  fontSize: 8.5,
+  color: '#202124',
+};
+
 const styles = StyleSheet.create({
   a4Page: {
     width: PREVIEW_WIDTH,
@@ -267,15 +277,112 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     alignSelf: 'center',
     marginBottom: 40,
+    padding: 14,
   },
-  bodyText: {
-    fontSize: 12,
-    lineHeight: 20,
-    color: '#334155',
-    textAlign: 'justify',
+  topStrip: {
+    height: 4,
+    marginBottom: 0,
   },
-  boldText: {
-    fontWeight: 'bold',
-    color: '#0F172A',
-  }
+  banner: {
+    borderWidth: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 36,
+  },
+  bannerText: {
+    fontSize: 20,
+    textAlign: 'center',
+    fontFamily: 'Times New Roman',
+  },
+  metaRow: {
+    alignItems: 'flex-end',
+    marginBottom: 18,
+  },
+  metaText: {
+    fontSize: 9,
+    color: '#4b5563',
+  },
+  subject: {
+    fontSize: 16,
+    color: '#202124',
+    marginBottom: 20,
+    fontFamily: 'Times New Roman',
+  },
+  paragraph: {
+    fontSize: 10.5,
+    lineHeight: 18,
+    color: '#202124',
+    marginBottom: 18,
+    fontFamily: 'Times New Roman',
+  },
+  paragraphTight: {
+    fontSize: 10.5,
+    lineHeight: 18,
+    color: '#202124',
+    marginBottom: 24,
+    fontFamily: 'Times New Roman',
+  },
+  strong: {
+    fontWeight: '700',
+    fontFamily: 'Times New Roman',
+  },
+  table: {
+    marginBottom: 24,
+  },
+  tableRow: {
+    flexDirection: 'row',
+  },
+  th: {
+    ...cellBase,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  td: {
+    ...cellBase,
+    backgroundColor: '#FFFFFF',
+  },
+  colSr: {
+    width: '5%',
+    textAlign: 'center',
+  },
+  colName: {
+    width: '24%',
+  },
+  colEid: {
+    width: '20%',
+  },
+  colJob: {
+    width: '18%',
+  },
+  colNationality: {
+    width: '14%',
+    textAlign: 'center',
+  },
+  colCompany: {
+    width: '19%',
+  },
+  signatureBlock: {
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  signatureText: {
+    width: '100%',
+    fontSize: 10.5,
+    color: '#202124',
+    marginBottom: 12,
+    fontFamily: 'Times New Roman',
+  },
+  companySignature: {
+    fontSize: 11.5,
+    color: '#202124',
+    marginTop: 18,
+    marginBottom: 8,
+    fontFamily: 'Times New Roman',
+  },
+  remarks: {
+    marginTop: 14,
+    fontSize: 9,
+    color: '#4b5563',
+    fontFamily: 'Times New Roman',
+  },
 });

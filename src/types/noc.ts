@@ -8,6 +8,7 @@ export const NocSchema = z.object({
   nationality: z.string().min(2, 'Please enter nationality'),
   jobTitle: z.string().min(2, 'Job title is required'),
   companyName: z.string().min(2, 'Company name is required'),
+  companyNameArabic: z.string().min(2, 'Arabic company name is required'),
   issueDate: z.string().min(1, 'Issue date is required'),
   managerName: z.string().min(2, 'Manager name is required'),
   phoneNumber: z.string().min(10, 'Invalid phone number'),

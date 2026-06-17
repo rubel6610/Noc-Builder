@@ -1,236 +1,302 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import { NocFormData } from '../types/noc';
 import { Template } from '../data/templates';
 
-export const generateNocPdf = async (data: NocFormData, template: Template, serialNumber: string) => {
-  const htmlContent = `
+const STAMP_COLOR = '#6D28D9';
+
+const escapeHtml = (value: string | undefined) =>
+  (value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+const parseSafeDate = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+    if (
+      parsed.getFullYear() === Number(year) &&
+      parsed.getMonth() === Number(month) - 1 &&
+      parsed.getDate() === Number(day)
+    ) {
+      return parsed;
+    }
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getIssueDateText = (issueDate: string) => {
+  const parsed = parseSafeDate(issueDate);
+  if (!parsed) {
+    return issueDate;
+  }
+
+  return parsed.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
+const buildStampSvg = (englishName: string, arabicName: string) => `
+  <svg width="230" height="230" viewBox="0 0 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <path id="topArc" d="M 28 100 A 72 72 0 0 1 172 100" />
+      <path id="bottomArc" d="M 172 100 A 72 72 0 0 1 28 100" />
+    </defs>
+    <g transform="rotate(-8 100 100)" opacity="0.96">
+      <circle cx="100" cy="100" r="84" fill="none" stroke="${STAMP_COLOR}" stroke-width="4" />
+      <circle cx="100" cy="100" r="60" fill="none" stroke="${STAMP_COLOR}" stroke-width="2.5" />
+      <text fill="${STAMP_COLOR}" font-size="10" font-weight="700">
+        <textPath xlink:href="#topArc" href="#topArc" startOffset="50%" text-anchor="middle">${escapeHtml(arabicName || 'اسم الشركة')}</textPath>
+      </text>
+      <text fill="${STAMP_COLOR}" font-size="8.5" font-weight="700" letter-spacing="0.8">
+        <textPath xlink:href="#bottomArc" href="#bottomArc" startOffset="50%" text-anchor="middle">${escapeHtml(englishName || 'COMPANY NAME')}</textPath>
+      </text>
+      <text x="51" y="108" text-anchor="middle" fill="${STAMP_COLOR}" font-size="14" font-weight="700">•</text>
+      <text x="149" y="108" text-anchor="middle" fill="${STAMP_COLOR}" font-size="14" font-weight="700">•</text>
+    </g>
+    <text x="100" y="108" text-anchor="middle" dominant-baseline="middle" fill="${STAMP_COLOR}" font-size="24" font-weight="700">UAE</text>
+  </svg>
+`;
+
+const buildNocHtml = (data: NocFormData, template: Template, serialNumber: string) => {
+  const issueDate = getIssueDateText(data.issueDate);
+  const stampSvg = buildStampSvg(data.companyName, data.companyNameArabic);
+
+  return `
     <!DOCTYPE html>
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
         <style>
-          @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&family=Playfair+Display:wght@700&display=swap');
-          
+          @page {
+            size: A4;
+            margin: 20px;
+          }
+
           body {
-            font-family: 'Roboto', sans-serif;
             margin: 0;
-            padding: 0;
-            background-color: white;
-            color: #1e293b;
+            color: #202124;
+            font-family: "Times New Roman", Times, serif;
+            background: #ffffff;
           }
-          
-          .a4-container {
+
+          .document {
             width: 100%;
-            height: 100%;
-            padding: 40px;
             box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            border-top: ${template.id === '4' || template.id === '5' ? `12px solid ${template.primaryColor}` : 'none'};
           }
-          
-          .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 30px;
-            background-color: ${template.id === '1' || template.id === '3' ? template.primaryColor : 'transparent'};
-            color: ${template.id === '1' || template.id === '3' ? 'white' : template.primaryColor};
-            border-radius: 8px;
-            margin-bottom: 40px;
+
+          .top-strip {
+            height: 4px;
+            background: ${template.primaryColor};
+            margin-bottom: 0;
           }
-          
-          .header-title {
-            font-size: 32px;
-            font-weight: 900;
-            margin: 0;
-            font-family: ${template.id === '4' ? "'Playfair Display', serif" : 'inherit'};
-          }
-          
-          .ref-no {
-            font-size: 12px;
-            opacity: 0.8;
-          }
-          
-          .company-info {
-            text-align: right;
-          }
-          
-          .company-name {
-            font-weight: bold;
-            font-size: 18px;
-            margin-bottom: 5px;
-          }
-          
-          .date {
-            font-size: 12px;
-            opacity: 0.8;
-          }
-          
-          .accent-bar {
-            background-color: ${template.secondaryColor};
-            height: 6px;
-            width: 100%;
-            margin-top: -40px;
-            margin-bottom: 40px;
-            display: ${template.id === '1' ? 'block' : 'none'};
-          }
-          
-          .content {
-            flex: 1;
-            padding: 20px 40px;
-          }
-          
-          .doc-title {
+
+          .banner {
+            background: ${template.secondaryColor};
+            color: ${template.id === '2' ? '#111827' : '#ffffff'};
             text-align: center;
-            font-size: 20px;
-            font-weight: bold;
-            color: ${template.primaryColor};
-            text-decoration: ${template.id === '2' ? 'none' : 'underline'};
-            margin-bottom: 50px;
-            text-transform: uppercase;
+            border: 2px solid ${template.primaryColor};
+            font-size: 34px;
+            line-height: 1.2;
+            padding: 18px 20px 16px;
+            margin-bottom: 90px;
+            letter-spacing: 0.3px;
           }
-          
-          .body-text {
-            font-size: 16px;
-            line-height: 1.8;
-            text-align: justify;
-            margin-bottom: 30px;
-          }
-          
-          .bold {
-            font-weight: bold;
-            color: #0f172a;
-          }
-          
-          .remarks-box {
-            background-color: #f8fafc;
-            border-left: 4px solid #cbd5e1;
-            padding: 15px;
-            margin-bottom: 30px;
-            font-style: italic;
-          }
-          
-          .footer-section {
-            margin-top: auto;
+
+          .meta-row {
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
-            padding-bottom: 50px;
+            align-items: flex-start;
+            font-size: 14px;
+            margin-bottom: 30px;
           }
-          
-          .signature-area {
-            width: 250px;
+
+          .subject {
+            font-size: 24px;
+            margin: 0 0 28px;
+            font-weight: 400;
           }
-          
-          .sig-line {
-            border-top: 1px solid #e2e8f0;
+
+          .paragraph {
+            font-size: 17px;
+            line-height: 1.45;
+            margin: 0 0 30px;
+          }
+
+          .paragraph.tight {
+            margin-bottom: 16px;
+          }
+
+          .strong {
+            font-weight: 700;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 46px 0 34px;
+            table-layout: fixed;
+            font-size: 15px;
+          }
+
+          th, td {
+            border: 1px solid #262626;
+            padding: 10px 8px;
+            vertical-align: top;
+            word-wrap: break-word;
+          }
+
+          th {
+            background: ${template.accentColor};
+            text-align: center;
+            font-weight: 700;
+          }
+
+          td {
+            background: #ffffff;
+          }
+
+          .col-sr { width: 5%; text-align: center; }
+          .col-name { width: 25%; }
+          .col-eid { width: 21%; }
+          .col-job { width: 18%; }
+          .col-nationality { width: 13%; text-align: center; }
+          .col-company { width: 18%; }
+
+          .closing {
+            margin-top: 28px;
+          }
+
+          .closing-line {
+            font-size: 17px;
+            margin: 0 0 18px;
+          }
+
+          .manager {
+            font-size: 17px;
+            margin-bottom: 34px;
+          }
+
+          .company-sign {
+            text-align: center;
+            font-size: 18px;
             margin-bottom: 10px;
           }
-          
-          .sig-name {
-            font-weight: bold;
-            font-size: 14px;
-            text-transform: uppercase;
-          }
-          
-          .sig-title {
-            font-size: 12px;
-            color: #64748b;
-          }
-          
-          .stamp-area {
-            width: 100px;
-            height: 100px;
-            border: 2px dashed ${template.primaryColor}22;
-            border-radius: 50%;
+
+          .seal {
+            width: 230px;
+            height: 230px;
+            margin: 0 auto;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 10px;
-            color: ${template.primaryColor}44;
-            text-align: center;
           }
-          
-          .contact-footer {
-            display: flex;
-            justify-content: space-around;
-            padding: 20px;
-            background-color: ${template.id === '2' ? 'transparent' : template.accentColor};
-            border-top: 1px solid #f1f5f9;
-            font-size: 10px;
-            color: #475569;
-            border-radius: 0 0 8px 8px;
+
+          .remarks {
+            margin-top: 18px;
+            font-size: 15px;
+            color: #4b5563;
           }
         </style>
       </head>
       <body>
-        <div class="a4-container">
-          <div class="header">
-            <div>
-              <h1 class="header-title">NOC</h1>
-              <div class="ref-no">Ref: ${serialNumber}</div>
-            </div>
-            <div class="company-info">
-              <div class="company-name">${data.companyName}</div>
-              <div class="date">Date: ${data.issueDate}</div>
-            </div>
+        <div class="document">
+          <div class="top-strip"></div>
+          <div class="banner">${escapeHtml(data.companyName)}</div>
+
+          <div class="meta-row">
+            <div></div>
+            <div>Date: ${escapeHtml(issueDate)}</div>
           </div>
-          
-          ${template.id === '1' ? '<div class="accent-bar"></div>' : ''}
-          
-          <div class="content">
-            <div class="doc-title">To Whomsoever It May Concern</div>
-            
-            <div class="body-text">
-              This is to certify that <span class="bold">${data.employeeName}</span>, 
-              son of <span class="bold">${data.fatherName}</span>, 
-              holding Passport No: <span class="bold">${data.passportNumber}</span> 
-              and Emirates ID: <span class="bold">${data.emiratesId}</span>, 
-              is currently employed with <span class="bold">${data.companyName}</span> 
-              as <span class="bold">${data.jobTitle}</span>.
-            </div>
-            
-            <div class="body-text">
-              We confirm that we have no objection to the employee's request and we provide our 
-              full consent regarding the matter mentioned in the application.
-            </div>
-            
-            ${data.remarks ? `
-              <div class="remarks-box">
-                <strong>REMARKS:</strong><br/>
-                ${data.remarks}
-              </div>
-            ` : ''}
-            
-            <div class="footer-section">
-              <div class="signature-area">
-                <div class="sig-line"></div>
-                <div class="sig-name">${data.managerName}</div>
-                <div class="sig-title">Authorized Signatory</div>
-                <div class="sig-title">${data.companyName}</div>
-              </div>
-              
-              <div class="stamp-area">
-                OFFICIAL STAMP
-              </div>
-            </div>
+
+          <p class="subject">Sub: No Objection Certificate</p>
+
+          <p class="paragraph">
+            We confirm that <span class="strong">${escapeHtml(data.employeeName)}</span>, Emirates ID No
+            <span class="strong">${escapeHtml(data.emiratesId)}</span> has been an employee of
+            <span class="strong">${escapeHtml(data.companyName)}</span> as a
+            <span class="strong">${escapeHtml(data.jobTitle)}</span> and we have no objection for
+            ${escapeHtml(data.employeeName.split(' ')[0] || 'the employee')} to work with
+            <span class="strong">any other company</span>.
+          </p>
+
+          <p class="paragraph">
+            This no objection certificate is issued on particular request of the employee and may be useful for
+            him in future or as per requirement of any other organization.
+          </p>
+
+          <p class="paragraph tight">
+            If any further queries are to be discussed you can feel free to contact.
+          </p>
+
+          <table>
+            <thead>
+              <tr>
+                <th class="col-sr">Sr</th>
+                <th class="col-name">Name</th>
+                <th class="col-eid">Emirates ID No</th>
+                <th class="col-job">Job</th>
+                <th class="col-nationality">Nationality</th>
+                <th class="col-company">Company</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="col-sr">01</td>
+                <td class="col-name">${escapeHtml(data.employeeName)}</td>
+                <td class="col-eid">${escapeHtml(data.emiratesId)}</td>
+                <td class="col-job">${escapeHtml(data.jobTitle)}</td>
+                <td class="col-nationality">${escapeHtml(data.nationality)}</td>
+                <td class="col-company">${escapeHtml(data.companyName)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="closing">
+            <p class="closing-line">Yours truly</p>
+            <p class="closing-line manager">${escapeHtml(data.managerName || 'Manager')}</p>
+
+            <div class="company-sign">${escapeHtml(data.companyName)}</div>
+            <div class="seal">${stampSvg}</div>
           </div>
-          
-          <div class="contact-footer">
-            <div><strong>Phone:</strong> ${data.phoneNumber}</div>
-            <div><strong>Address:</strong> ${data.address}</div>
-          </div>
+
+          ${data.remarks ? `<div class="remarks">Remarks: ${escapeHtml(data.remarks)}</div>` : ''}
         </div>
       </body>
     </html>
   `;
+};
+
+export const generateNocPdf = async (data: NocFormData, template: Template, serialNumber: string) => {
+  const htmlContent = buildNocHtml(data, template, serialNumber);
 
   try {
+    if (Platform.OS === 'web') {
+      await Print.printAsync({ html: htmlContent });
+      return 'web-print-dialog';
+    }
+
     const { uri } = await Print.printToFileAsync({ html: htmlContent });
-    console.log('PDF Generated at:', uri);
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    }
+
     return uri;
   } catch (error) {
     console.error('Error generating PDF:', error);

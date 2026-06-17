@@ -1,16 +1,19 @@
 import React from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { TextInput, Button, HelperText, Title, Surface, useTheme } from 'react-native-paper';
+import { TextInput, Button, HelperText, Title, Surface, useTheme, Text } from 'react-native-paper';
 import { NocSchema, NocFormData } from '../types/noc';
 import { useNoc } from '../context/NocContext';
+import { useTemplates } from '../context/TemplateContext';
+import { generateNocPdf } from '../utils/pdfGenerator';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 export const NocForm = () => {
   const theme = useTheme();
   const { saveNocData, nocData } = useNoc();
-  
+  const { selectedTemplate } = useTemplates();
+
   const {
     control,
     handleSubmit,
@@ -25,6 +28,7 @@ export const NocForm = () => {
       nationality: '',
       jobTitle: '',
       companyName: '',
+      companyNameArabic: '',
       issueDate: new Date().toISOString().split('T')[0],
       managerName: '',
       phoneNumber: '',
@@ -33,9 +37,16 @@ export const NocForm = () => {
     },
   });
 
-  const onSubmit = (data: NocFormData) => {
+  const onSubmit = async (data: NocFormData) => {
     saveNocData(data);
-    alert('NOC Details Saved Successfully!');
+
+    if (!selectedTemplate) {
+      alert('Please select a template before generating the NOC PDF.');
+      return;
+    }
+
+    const referenceNumber = `NOC-${new Date().toISOString().slice(0, 10)}-${Date.now().toString().slice(-6)}`;
+    await generateNocPdf(data, selectedTemplate, referenceNumber);
   };
 
   const renderInput = (
@@ -77,17 +88,27 @@ export const NocForm = () => {
   );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 60}
-      style={{ flex: 1 }}
-    >
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ padding: 20, paddingBottom: 32 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+    <View style={{ padding: 20 }}>
+        {selectedTemplate ? (
+          <Surface className="p-4 rounded-[24px] bg-emerald-50 dark:bg-emerald-900/20 mb-6 border border-emerald-100 dark:border-emerald-800" elevation={1}>
+            <Text className="font-black text-emerald-900 dark:text-emerald-100">
+              Selected template: {selectedTemplate.name}
+            </Text>
+            <Text className="text-emerald-700 dark:text-emerald-200 mt-1">
+              Submitting this form will generate the PDF directly from these inputs.
+            </Text>
+          </Surface>
+        ) : (
+          <Surface className="p-4 rounded-[24px] bg-amber-50 dark:bg-amber-900/20 mb-6 border border-amber-100 dark:border-amber-800" elevation={1}>
+            <Text className="font-black text-amber-900 dark:text-amber-100">
+              No template selected
+            </Text>
+            <Text className="text-amber-700 dark:text-amber-200 mt-1">
+              Choose a template first, then generate the NOC PDF from this form.
+            </Text>
+          </Surface>
+        )}
+
         <Surface className="p-6 rounded-[32px] bg-white dark:bg-slate-800 mb-6 border border-slate-100 dark:border-slate-700" elevation={1}>
           <View className="flex-row items-center mb-6">
             <View className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-2xl mr-4">
@@ -99,7 +120,7 @@ export const NocForm = () => {
           {renderInput('employeeName', 'Full Name', 'account')}
           {renderInput('fatherName', 'Father Name', 'human-male-boy')}
           {renderInput('nationality', 'Nationality', 'flag-outline')}
-          
+
           <View className="flex-row flex-wrap gap-4">
             <View className="flex-1" style={{ minWidth: 0 }}>
               {renderInput('passportNumber', 'Passport', 'passport')}
@@ -123,9 +144,10 @@ export const NocForm = () => {
               {renderInput('jobTitle', 'Designation', 'badge-account-horizontal-outline')}
             </View>
             <View className="flex-1" style={{ minWidth: 0 }}>
-              {renderInput('companyName', 'Company', 'office-building')}
+              {renderInput('companyName', 'Company Name (English)', 'office-building')}
             </View>
           </View>
+          {renderInput('companyNameArabic', 'Company Name (Arabic)', 'alphabetical-variant', 'اسم الشركة بالعربية')}
           {renderInput('managerName', 'Manager', 'account-tie')}
           {renderInput('issueDate', 'Issue Date', 'calendar-range')}
         </Surface>
@@ -150,9 +172,8 @@ export const NocForm = () => {
           contentStyle={{ height: 60 }}
           labelStyle={{ fontSize: 18, fontWeight: 'black' }}
         >
-          Verify & Save
+          Generate NOC PDF
         </Button>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };

@@ -11,9 +11,9 @@ export default function SettingsScreen() {
     <ScrollView className="flex-1 bg-gray-50 dark:bg-slate-900">
       <Surface className="bg-white dark:bg-slate-800 p-8 items-center border-b border-gray-100 dark:border-slate-700" elevation={1}>
         <View className="relative">
-          <Avatar.Image 
-            size={100} 
-            source={{ uri: 'https://i.pravatar.cc/300' }} 
+          <Avatar.Image
+            size={100}
+            source={{ uri: 'https://i.pravatar.cc/300' }}
           />
           <View className="absolute bottom-0 right-0 bg-blue-500 p-1 rounded-full border-2 border-white">
             <MaterialCommunityIcons name="check" size={16} color="white" />
@@ -52,19 +52,21 @@ export default function SettingsScreen() {
       </List.Section>
 
       <List.Section>
-        <List.Subheader className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Security & Storage</List.Subheader>
+        <List.Subheader className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Document Flow</List.Subheader>
         <Surface className="mx-4 rounded-3xl overflow-hidden bg-white dark:bg-slate-800" elevation={1}>
           <List.Item
-            title="Clear History"
-            titleStyle={{ fontWeight: '600', color: '#EF4444' }}
-            left={props => <List.Icon {...props} icon="trash-can-outline" color="#EF4444" />}
+            title="Direct PDF Generation"
+            titleStyle={{ fontWeight: '600' }}
+            description="The app does not keep a document history or database archive."
+            left={props => <List.Icon {...props} icon="file-pdf-box" color="#64748B" />}
             onPress={() => {}}
           />
           <Divider />
           <List.Item
-            title="Export All Data"
+            title="Template-Based Output"
             titleStyle={{ fontWeight: '600' }}
-            left={props => <List.Icon {...props} icon="database-export" color="#64748B" />}
+            description="Each generated NOC uses the currently selected template and form inputs."
+            left={props => <List.Icon {...props} icon="palette-outline" color="#64748B" />}
             onPress={() => {}}
           />
         </Surface>
@@ -90,9 +92,9 @@ export default function SettingsScreen() {
       </List.Section>
 
       <View className="p-8 mb-12">
-        <Button 
-          mode="contained" 
-          buttonColor="#EF4444" 
+        <Button
+          mode="contained"
+          buttonColor="#EF4444"
           onPress={() => {}}
           className="rounded-2xl py-1"
           contentStyle={{ height: 50 }}
@@ -100,7 +102,7 @@ export default function SettingsScreen() {
           Logout Securely
         </Button>
         <Text className="text-center text-gray-400 mt-6 text-[10px] font-bold tracking-tighter">
-          NOC BUILDER PRO • VERSION 2.0.0 (STABLE)
+          NOC BUILDER PRO - VERSION 2.0.0 (STABLE)
         </Text>
       </View>
     </ScrollView>
